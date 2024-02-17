@@ -11,7 +11,7 @@ import torch
 
 from typing import Optional, Tuple
 
-from amg_utils import ResizeLongestSide
+from amg.amg_utils import ResizeLongestSide
 
 
 class SamPredictor:
