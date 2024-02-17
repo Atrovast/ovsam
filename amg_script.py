@@ -7,7 +7,7 @@
 import cv2  # type: ignore
 
 # from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
-from automatic_mask_generator import SamAutomaticMaskGenerator
+from amg.automatic_mask_generator import SamAutomaticMaskGenerator
 
 import argparse
 import json
@@ -43,12 +43,12 @@ parser.add_argument(
     ),
 )
 
-parser.add_argument(
-    "--model-type",
-    type=str,
-    required=True,
-    help="The type of model to load, in ['default', 'vit_h', 'vit_l', 'vit_b']",
-)
+# parser.add_argument(
+#     "--model-type",
+#     type=str,
+#     required=True,
+#     help="The type of model to load, in ['default', 'vit_h', 'vit_l', 'vit_b']",
+# )
 
 # parser.add_argument(
 #     "--checkpoint",
