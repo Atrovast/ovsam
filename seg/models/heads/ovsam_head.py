@@ -54,7 +54,7 @@ class OVSAMHead(BaseModule):
             transformer_dim=meta_dict[model_name]['prompt_embed_dim'],
             iou_head_depth=3,
             iou_head_hidden_dim=256,
-            with_iou=False
+            with_iou=True
         )
 
         if self.init_cfg['type'] == 'sam_pretrain':
@@ -203,6 +203,8 @@ class OVSAMHead(BaseModule):
         b, c, h, w = mask_feats.shape
         masks = (mask_queries @ mask_feats.view(b, c, h * w)).view(b, -1, h, w)
 
+        iou_pred = self.mask_decoder.iou_prediction_head(label_query)
+
         # Generate class labels
         if self.with_label_token:
             cls_embed_list = []
@@ -220,7 +222,7 @@ class OVSAMHead(BaseModule):
             cls_pred = self.forward_logit(roi_feats)
         else:
             cls_pred = None
-        return masks, None, cls_pred
+        return masks, iou_pred, cls_pred
 
     def forward(
             self,
@@ -237,7 +239,7 @@ class OVSAMHead(BaseModule):
         num_prompts = len(sparse_prompt_embeddings)
         image_embeddings = torch.repeat_interleave(image_embeddings, num_prompts, dim=0)
 
-        masks, _, cls_pred = self.predict_masks(
+        masks, iou_pred, cls_pred = self.predict_masks(
             image_embeddings=image_embeddings,
             image_pe=image_pe,
             sparse_prompt_embeddings=sparse_prompt_embeddings,
@@ -249,14 +251,14 @@ class OVSAMHead(BaseModule):
         )
 
         # Select the correct mask or masks for output
-        if multi_mask_output:
-            mask_slice = slice(1, None)
-        else:
-            mask_slice = slice(0, 1)
-        masks = masks[:, mask_slice, :, :]
+        # if multi_mask_output:
+        #     mask_slice = slice(1, None)
+        # else:
+        #     mask_slice = slice(0, 1)
+        # masks = masks[:, mask_slice, :, :]
 
         # Prepare output
-        return masks, None, cls_pred
+        return masks, iou_pred, cls_pred
 
     def forward_train(
             self,

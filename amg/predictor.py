@@ -12,12 +12,15 @@ import torch
 from typing import Optional, Tuple
 
 from amg.amg_utils import ResizeLongestSide
+from mmengine.structures import InstanceData
+import torch.nn.functional as F
 
 
 class SamPredictor:
     def __init__(
         self,
         sam_model,#: Sam,
+        img_long_side: int = 1024,
     ) -> None:
         """
         Uses SAM to calculate the image embedding for an image, and then
@@ -28,7 +31,8 @@ class SamPredictor:
         """
         super().__init__()
         self.model = sam_model
-        self.transform = ResizeLongestSide(sam_model.image_encoder.img_size)
+        self.image_long_side = img_long_side
+        self.transform = ResizeLongestSide(img_long_side)
         self.reset_image()
 
     def set_image(
@@ -49,12 +53,15 @@ class SamPredictor:
             "RGB",
             "BGR",
         ], f"image_format must be in ['RGB', 'BGR'], is {image_format}."
-        if image_format != self.model.image_format:
-            image = image[..., ::-1]
+        # if image_format != self.model.image_format:
+        #     image = image[..., ::-1]
 
         # Transform the image to the form expected by the model
         input_image = self.transform.apply_image(image)
-        input_image_torch = torch.as_tensor(input_image, device=self.device)
+        input_image_torch = torch.as_tensor(input_image, device='cuda', dtype=torch.float32)
+        mean = torch.tensor([123.675, 116.28, 103.53], device='cuda')
+        std = torch.tensor([58.395, 57.12, 57.375], device='cuda')
+        input_image_torch = (input_image_torch - mean) / std
         input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
 
         self.set_torch_image(input_image_torch, image.shape[:2])
@@ -79,16 +86,17 @@ class SamPredictor:
         assert (
             len(transformed_image.shape) == 4
             and transformed_image.shape[1] == 3
-            and max(*transformed_image.shape[2:]) == self.model.image_encoder.img_size
+            # and max(*transformed_image.shape[2:]) == self.model.image_encoder.img_size
         ), f"set_torch_image input must be BCHW with long side {self.model.image_encoder.img_size}."
         self.reset_image()
 
         self.original_size = original_image_size
         self.input_size = tuple(transformed_image.shape[-2:])
-        input_image = self.model.preprocess(transformed_image)
-        # self.features = self.model.image_encoder(input_image)
-        backbone_feat = self.model.backbone(input_image)
+        # input_image = self.model.preprocess(transformed_image)
+        backbone_feat = self.model.backbone(transformed_image)
         self.features = self.model.neck(backbone_feat)
+        self.fpn_feats = self.model.fpn_neck(backbone_feat)
+        print(self.features.shape)
 
         self.is_image_set = True
 
@@ -222,24 +230,41 @@ class SamPredictor:
             points = None
 
         # Embed prompts
-        sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
-            points=points,
-            boxes=boxes,
-            masks=mask_input,
+        # sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
+        #     points=points,
+        #     boxes=boxes,
+        #     masks=mask_input,
+        # )
+        prompt_instances = InstanceData(
+            point_coords=point_coords,
+        )
+        sparse_embed, dense_embed = self.model.pe(
+            prompt_instances,
+            image_size=(self.image_long_side, self.image_long_side),
+            with_points=True,
         )
 
         # Predict masks
         low_res_masks, iou_predictions = self.model.mask_decoder(
             image_embeddings=self.features,
             image_pe=self.model.prompt_encoder.get_dense_pe(),
-            sparse_prompt_embeddings=sparse_embeddings,
-            dense_prompt_embeddings=dense_embeddings,
+            sparse_prompt_embeddings=sparse_embed,
+            dense_prompt_embeddings=dense_embed,
             multimask_output=multimask_output,
-            #fpn_feats
+            fpn_feats=[itm[0:1] for itm in self.fpn_feats],
         )
 
+        def postprocess_masks(
+                mask: torch.Tensor,
+                input_size: Tuple[int, int],
+                original_size: Tuple[int, int],
+        ) -> torch.Tensor:
+            mask = mask[..., : input_size[0], : input_size[1]]
+            mask = F.interpolate(mask, original_size, mode="bilinear", align_corners=False)
+            return mask
+
         # Upscale the masks to the original image resolution
-        masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
+        masks = postprocess_masks(low_res_masks, self.input_size, self.original_size)
 
         if not return_logits:
             masks = masks > self.model.mask_threshold

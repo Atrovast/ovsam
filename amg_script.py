@@ -225,6 +225,15 @@ def main(args: argparse.Namespace) -> None:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         masks = generator.generate(image)
+        # overlap
+        sorted_anns = sorted(masks, key=(lambda x: x['area']), reverse=True)
+        import numpy as np
+        img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 768))
+        # img[:, :, 3] = 0
+        for ann in sorted_anns:
+            m = ann['segmentation']
+            # color_mask = np.concatenate([np.random.random(3), [0.35]])
+            img[m] = ann['roi_feat']
 
         base = os.path.basename(t)
         base = os.path.splitext(base)[0]

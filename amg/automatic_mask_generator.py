@@ -38,8 +38,8 @@ class SamAutomaticMaskGenerator:
         model,#: Sam,
         points_per_side: Optional[int] = 32,
         points_per_batch: int = 64,
-        pred_iou_thresh: float = 0.88,
-        stability_score_thresh: float = 0.95,
+        pred_iou_thresh: float = 0.6,
+        stability_score_thresh: float = 0.7,
         stability_score_offset: float = 1.0,
         box_nms_thresh: float = 0.7,
         crop_n_layers: int = 0,
@@ -274,9 +274,9 @@ class SamAutomaticMaskGenerator:
 
         # Run model on this batch
         transformed_points = self.predictor.transform.apply_coords(points, im_size)
-        in_points = torch.as_tensor(transformed_points, device=self.predictor.device)
+        in_points = torch.as_tensor(transformed_points, device='cuda')
         in_labels = torch.ones(in_points.shape[0], dtype=torch.int, device=in_points.device)
-        masks, iou_preds, _ = self.predictor.predict_torch(
+        masks, iou_preds, roi = self.predictor.predict_torch(
             in_points[:, None, :],
             in_labels[:, None],
             multimask_output=True,
@@ -286,8 +286,9 @@ class SamAutomaticMaskGenerator:
         # Serialize predictions and store in MaskData
         data = MaskData(
             masks=masks.flatten(0, 1),
-            iou_preds=iou_preds.flatten(0, 1),
+            iou_preds=iou_preds[:, -1],
             points=torch.as_tensor(points.repeat(masks.shape[1], axis=0)),
+            roi_feat=roi,
         )
         del masks
 
@@ -298,14 +299,14 @@ class SamAutomaticMaskGenerator:
 
         # Calculate stability score
         data["stability_score"] = calculate_stability_score(
-            data["masks"], self.predictor.model.mask_threshold, self.stability_score_offset
+            data["masks"], 0.01, self.stability_score_offset
         )
         if self.stability_score_thresh > 0.0:
             keep_mask = data["stability_score"] >= self.stability_score_thresh
             data.filter(keep_mask)
 
         # Threshold masks and calculate boxes
-        data["masks"] = data["masks"] > self.predictor.model.mask_threshold
+        data["masks"] = data["masks"] > 0.01
         data["boxes"] = batched_mask_to_box(data["masks"])
 
         # Filter boxes that touch crop boundaries
