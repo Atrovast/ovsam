@@ -16,6 +16,8 @@
 [![Open in OpenXLab](https://cdn-static.openxlab.org.cn/app-center/openxlab_app.svg)](https://openxlab.org.cn/apps/detail/houshaowei/Open-Vocabulary_SAM)
 
 ## 👀 Overview
+imported amg, function not checked. download the weights from [Hugging Face](https://huggingface.co/HarborYuan/ovsam_models) and put them into the folder from config.
+
 We introduce the Open-Vocabulary SAM, a SAM-inspired model designed for simultaneous interactive segmentation and recognition, leveraging two unique knowledge transfer modules: SAM2CLIP and CLIP2SAM. The former adapts SAM's knowledge into the CLIP via distillation and learnable transformer adapters, while the latter transfers CLIP knowledge into SAM, enhancing its recognition capabilities.
 
 <p>
